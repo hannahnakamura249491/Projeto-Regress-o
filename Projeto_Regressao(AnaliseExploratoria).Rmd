@@ -1,0 +1,833 @@
+---
+title: "Projeto_Regressao"
+author: "Hannah Miranda Nakamura (249491)"
+date: "2026-10-18"
+output: html_document
+---
+
+# Lendo o banco
+
+```{r}
+# abrindo bibliotecas
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+```
+
+```{r}
+dados <- read.table("dados.txt", header = TRUE) # lendo o grupo de dados que deve estar presente no diretório do computador
+```
+
+```{r}
+# vendo o banco
+summary(dados)
+```
+Note que pluraly, outcome e sex possuem o registro de apenas um  tipo de observação. Dessa forma, não será possível analisar sua correlação com os dados, uma vez aue não existe forma de comparação.
+
+**Ideias iniciais:**
+- regressão do peso dos fetos como resposta
+- usar os pesos dos pais (wt.1 e dwt) como variáveis
+- adicionar a variável de fumo da mãe como uma categórica
+- podemos ir adicionando as outras variáveis também para ir testando tudo, como a quanto tempo a mãe largou o cigarro (isso só será possível se a mãe fumou e largou, então talvez, para verificar se isso tem influência devessemos filtrar os dados antes)
+
+```{r}
+# mudando o nome da coluna do peso da mãe para não confundir com o do bebê
+dados <- dados |> 
+  rename(mwt = wt.1)
+```
+
+# Analisando cada uma das variáveis do banco 
+
+```{r}
+# pluralty
+
+ggplot(dados, aes(x = pluralty)) + # gráfico
+  geom_bar(fill = "steelblue", width = 0.6) +
+  theme_minimal() +
+  labs(
+    title = "Distribuição da variável de quantidade de fetos",
+    x = "Quantidade de fetos",
+    y = "Contagem"
+  )
+```
+Note que todos os nascimentos registrados foram de um feto único. Dessa forma, não será possível incluir essa variável na regressão, dado que não podemos comprovar sua relação com a variável resposta peso sem comparar seus efeitos de sua presença com a falta.
+
+```{r}
+# outcome
+
+ggplot(dados, aes(x = outcome)) + # gráfico
+  geom_bar(fill = "steelblue", width = 0.6) +
+  theme_minimal() +
+  labs(
+    title = "Distribuição da variável de sobrevivência",
+    x = "Sobrevivência",
+    y = "Contagem"
+  )
+```
+Note que todos os bebês registrados sobreviveram pelo menos 28 dias. Dessa forma, não será possível inclui essa variável na regressão, dado que não podemos comprovar sua relação com a variável resposta peso sem comparar seus efeitos de sua presença com a falta.
+
+
+```{r}
+# date
+
+ggplot(dados, aes(x = date)) + # gráficos
+  geom_bar(fill = "steelblue", width = 0.6) +
+  theme_minimal() +
+  labs(
+    title = "Distribuição das datas de nascimento",
+    x = "Datas de nascimento",
+    y = "Contagem"
+  )
+```
+Não é uma variável interessante de analizar
+
+```{r}
+# gestation
+
+gestation <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      gestation,
+      breaks = c(0, 195, 223, 237, 258, 272, 286, 293, 700, 1000),
+      labels = c("< 28 sem", "[28, 32) sem", "[32, 34) sem", "[34, 37) sem", "[37, 39) sem", "[39, 41) sem", "[41, 42) sem", "> 42 sem", "outlier")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "outlier", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "outlier", as.character(n), NA)
+  )
+
+ggplot(gestation, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição da tempo das gestações",
+    x = "Tempo de gestação",
+    y = "Contagem"
+  )
+```
+Observe que tem uns dados com 999, sendo que a descrição das variáveis não apresenta isso como NA, mesmo que provavelmente seja. Além disso, há números irrais que não foram mencionados na descrição das variáveis (999)
+
+```{r}
+# sex
+
+sex <- dados |> # agrupando e separando por destaque
+  count(sex) |> 
+  mutate(
+  destaque = ifelse(sex == 9, "Destaque", "Analizavel"),
+  rotulo = ifelse(sex == 9, as.character(n), NA)
+  )
+
+ggplot(sex, aes(x = sex, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição dos sexos dos bebês",
+    x = "Sexo",
+    y = "Contagem"
+  )
+```
+Note que todos os bebês registrados eram homens. Dessa forma, não será possível inclui essa variável na regressão, dado que não podemos comprovar sua relação com a variável resposta peso sem comparar seus efeitos de sua presença com a falta.
+
+```{r}
+# wt
+
+wt <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      wt,
+      breaks = seq(0, 1000, by = 10))
+    ) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("990", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("990", faixa), as.character(n), NA)
+  )
+
+ggplot(wt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição do peso do bebê",
+    x = "Peso do bebê",
+    y = "Contagem"
+  )
+```
+Note que não houve nenhum NA(999) registrado.
+
+```{r}
+# parity
+
+parity <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      parity,
+      breaks = seq(0, 100, by = 1),
+      include.lowest = TRUE)
+    ) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("95", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("95", faixa), as.character(n), NA)
+  )
+
+ggplot(parity, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição do gestações anteriores",
+    x = "quantidade de gestações anteriores",
+    y = "Contagem"
+  )
+```
+Note que não houve nenhum NA(99) registrado.
+
+```{r}
+# race
+
+race <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      race,
+      breaks = c(0, 5, 6, 7, 8, 9, 99),
+      include.lowest = TRUE,
+      labels = c("branco", "mex", "negros", "asiáticos", "misturados", "NA")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA", as.character(n), NA)
+  )
+
+ggplot(race, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição da raça da mãe",
+    x = "raça da mãe",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# age
+
+age <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      age,
+      breaks = seq(0, 100, by = 5),
+      include.lowest = TRUE
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("95", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("95", faixa), as.character(n), NA)
+  )
+
+ggplot(age, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição da idade da mãe",
+    x = "idade da mãe",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# ed
+
+ed <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      ed,
+      breaks = c(-1, 0, 1, 2, 3, 4, 5, 7, 9),
+      include.lowest = TRUE,
+      labels = c("less", "not graduated", "HS", "HS + trade", "HS+ some college", "College", "Trade HS unclear", "NA")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA", as.character(n), NA)
+  )
+
+ggplot(ed, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição da escolaridade da mãe",
+    x = "escolaridade da mãe",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# ht
+
+ht <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      ht,
+      breaks = seq(0, 100, by = 5),
+      include.lowest = TRUE
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("95", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("95", faixa), as.character(n), NA)
+  )
+
+ggplot(ht, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição da altura da mãe",
+    x = "altura da mãe",
+    y = "Contagem"
+  )
+```
+
+```{r}
+#wt.1
+
+mwt <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      mwt,
+      breaks = seq(0, 1000, by = 5),
+      include.lowest = TRUE
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("995", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
+  )
+
+ggplot(mwt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição da peso da mãe",
+    x = "peso da mãe",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# drace
+
+drace <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      drace,
+      breaks = c(0, 5, 6, 7, 8, 9, 99),
+      include.lowest = TRUE,
+      labels = c("branco", "mex", "negros", "asiáticos", "misturados", "NA")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA", as.character(n), NA)
+  )
+
+ggplot(drace, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição da raça do pai",
+    x = "raça do pai",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# dage
+
+dage <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      dage,
+      breaks = seq(0, 100, by = 5),
+      include.lowest = TRUE
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("95", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("95", faixa), as.character(n), NA)
+  )
+
+ggplot(dage, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição da idade do pai",
+    x = "idade do pai",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# ded
+
+ded <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      ded,
+      breaks = c(-1, 0, 1, 2, 3, 4, 5, 7, 9),
+      include.lowest = TRUE,
+      labels = c("less", "not graduated", "HS", "HS + trade", "HS+ some college", "College", "Trade HS unclear", "NA")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA", as.character(n), NA)
+  )
+
+ggplot(ded, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição da escolaridade do pai",
+    x = "escolaridade do pai",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# dht
+
+dht <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      dht,
+      breaks = seq(0, 100, by = 5),
+      include.lowest = TRUE
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("95", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("95", faixa), as.character(n), NA)
+  )
+
+ggplot(dht, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Distribuição da altura do pai",
+    x = "altura do pai",
+    y = "Contagem"
+  )
+```
+Muito NA, não é uma variável interessante de analizar
+
+```{r}
+# dwt
+
+dwt <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      dwt,
+      breaks = seq(0, 1000, by = 5),
+      include.lowest = TRUE
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(grepl("995", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
+  )
+
+ggplot(dwt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição da peso do pai",
+    x = "peso do pai",
+    y = "Contagem"
+  )
+```
+Muito NA, não usar coluna
+
+```{r}
+# marital
+
+marital <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      marital,
+      breaks = c(0, 1, 2, 3, 4, 5),
+      include.lowest = TRUE,
+      labels = c("married", "legally separated", "divorced", "widowed", "never married")
+    )) |> 
+  count(faixa)
+
+ggplot(marital, aes(x = faixa, y = n)) + # gráfico
+  geom_col(fill = "steelblue", width = 0.6) +
+  theme_minimal() +
+  labs(
+    title = "Distribuição da relação dos pais",
+    x = "Relação dos pais",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# inc
+
+inc <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      inc,
+      breaks = c(-1, 0, 1, 8, 9, 98, 99),
+      include.lowest = TRUE,
+      labels = c("- $2.500", "$2.500 a $4.999", "$12.500 a $14.999", "$15.000 + ", "NA", "Não perguntado")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA" | faixa == "Não perguntado", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA" | faixa == "Não perguntado", as.character(n), NA)
+  )
+
+ggplot(inc, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição da renda familiar",
+    x = "renda familiar",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# smoke
+
+smoke <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      smoke,
+      breaks = c(-1, 0, 1, 2, 3, 9),
+      include.lowest = TRUE,
+      labels = c("nunca", "fuma agora", "até a gravidez", "já fumou, não agora", "NA")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA", as.character(n), NA)
+  )
+
+ggplot(smoke, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição da peso do pai",
+    x = "peso do pai",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# time
+
+time <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      time,
+      breaks = c(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 98, 99),
+      include.lowest = TRUE,
+      labels = c("nunca fumou", " ainda fuma", "durante a gravidez", "dentro de 1 ano", "1-2 anos", "2-3 anos", "3-4 anos", "até 9 anos atrás", "mais de 10 anos", "parou e não sabe", "NA", "não perguntado")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA" | faixa == "parou e não sabe" | faixa == "não perguntado", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA" | faixa == "parou e não sabe" | faixa == "não perguntado", as.character(n), NA)
+  )
+
+ggplot(time, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição do tempo que parou de fumar",
+    x = "tempo  que parou de fumar",
+    y = "Contagem"
+  )
+```
+
+```{r}
+# number
+
+number <- dados |> # agrupando e separando por destaque
+  mutate(
+    faixa = cut(
+      number,
+      breaks = c(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 98, 99),
+      include.lowest = TRUE,
+      labels = c("nunca", "1-4", "5-9", "10-14", "15-19", "20-29", "30-39", "40-60", "60+", "fumou e não sabe", "NA", "não perguntado")
+    )) |> 
+  count(faixa) |> 
+  mutate(
+  destaque = ifelse(faixa == "NA" | faixa == "fumou e não sabe" | faixa == "não perguntado", "Destaque", "Analizavel"),
+  rotulo = ifelse(faixa == "NA" | faixa == "fumou e não sabe" | faixa == "não perguntado", as.character(n), NA)
+  )
+
+ggplot(number, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = rotulo),
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(
+    title = "Distribuição do número de cigarros fumados por dia antes e durante a gestação",
+    x = "número de cigarros",
+    y = "Contagem"
+  )
+```
+
+# Adequando o banco para o R
+
+```{r}
+dados$gestation[dados$gestation == 999] <- NA
+dados$wt[dados$wt == 999] <- NA
+dados$race[dados$race == 99] <- NA
+dados$age[dados$age == 99] <- NA
+dados$ed[dados$ed == 9] <- NA
+dados$ht[dados$ht == 99] <- NA
+dados$mwt[dados$mwt == 999] <- NA
+dados$drace[dados$drace == 99] <- NA
+dados$ded[dados$ded == 9] <- NA
+dados$dht[dados$dht == 99] <- NA
+dados$dwt[dados$dwt == 999] <- NA
+dados$dage[dados$dage == 99] <- NA
+dados$inc[dados$inc == 98] <- NA # não tem 99 no banco
+dados$smoke[dados$smoke == 9] <- NA
+dados$time[dados$time == 9 | dados$time == 98| dados$time == 99] <- NA
+dados$number[dados$number == 9 | dados$number == 98] <- NA
+```
+
+```{r}
+# passando os pesos para kilo
+dados$wt <- dados$wt * 0.0283495
+dados$mwt <- dados$mwt * 0.45359237
+dados$dwt <- dados$dwt * 0.45359237 
+```
+
+```{r}
+# passando as alturas para cm
+dados$ht <- dados$ht * 2.54
+dados$dht <- dados$dht * 2.54
+```
+
+```{r}
+# tirando linhas com na
+dados_limpos <- na.omit(dados)
+```
+
+```{r}
+dados.1 <- dados_limpos |> 
+  select(gestation, parity, wt, race, age, ht:dage, inc:number)
+```
+
+```{r}
+dados.2 <- dados_limpos |> 
+  select(wt, pluralty:date, sex, ed, dage:ded, marital)
+```
+
+```{r}
+pairs(dados.1)
+```
+
+```{r}
+pairs(dados.2)
+```
+
+```{r}
+library(corrplot)
+
+M <- cor(dados)
+
+corrplot(
+  M,
+  method = "color",
+  addCoef.col = "black", insig = "blank", diag = FALSE
+)
+```
+

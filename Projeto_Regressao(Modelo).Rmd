@@ -1,0 +1,57 @@
+---
+title: "Projeto_Regressao(Modelo)"
+author: "Hannah Miranda Nakamura (249491)"
+date: "2026-10-29"
+output: pdf_document
+---
+
+# Adequando o banco para o R
+
+```{r}
+# abrindo bibliotecas
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+```
+
+```{r}
+dados <- read.table("dados.txt", header = TRUE) # lendo o grupo de dados que deve estar presente no diretório do computador
+```
+
+```{r}
+# mudando o nome da coluna do peso da mãe para não confundir com o do bebê
+dados <- dados |> 
+  rename(mwt = wt.1)
+```
+
+```{r}
+dados <- dados |> 
+  select(gestation, wt, race, age, ht:dage, inc:number)
+```
+
+```{r}
+dados$gestation[dados$gestation == 999] <- NA
+dados$wt[dados$wt == 999] <- NA
+dados$race[dados$race == 99] <- NA
+dados$age[dados$age == 99] <- NA
+dados$ht[dados$ht == 99] <- NA
+dados$mwt[dados$mwt == 999] <- NA
+dados$drace[dados$drace == 99] <- NA
+dados$dage[dados$dage == 99] <- NA
+dados$inc[dados$inc == 98] <- NA # não tem 99 no banco
+dados$smoke[dados$smoke == 9] <- NA
+dados$time[dados$time == 9 | dados$time == 98| dados$time == 99] <- NA
+dados$number[dados$number == 9 | dados$number == 98] <- NA
+```
+
+```{r}
+# passando os pesos para kilo
+dados$wt_kg <- dados$wt * 0.0283495
+dados$mwt_kg <- dados$mwt * 0.45359237
+```
+
+```{r}
+# passando as alturas para cm
+dados$ht_cm <- dados$ht * 2.54
+```
+
