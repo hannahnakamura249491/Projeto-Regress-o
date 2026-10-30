@@ -797,37 +797,28 @@ dados$dht <- dados$dht * 2.54
 ```
 
 ```{r}
-# tirando linhas com na
-dados_limpos <- na.omit(dados)
-```
-
-```{r}
-dados.1 <- dados_limpos |> 
+dados <- dados |> 
   select(gestation, parity, wt, race, age, ht:dage, inc:number)
 ```
 
 ```{r}
-dados.2 <- dados_limpos |> 
-  select(wt, pluralty:date, sex, ed, dage:ded, marital)
+# tirando linhas com na
+dados <- na.omit(dados)
 ```
 
 ```{r}
-pairs(dados.1)
+pairs(dados)
 ```
 
-```{r}
-pairs(dados.2)
-```
 
 ```{r}
 library(corrplot)
 
-M <- cor(dados)
+M1 <- cor(dados)
 
 corrplot(
-  M,
-  method = "color",
-  addCoef.col = "black", insig = "blank", diag = FALSE
+  M1,
+  method = "color"
 )
 ```
 

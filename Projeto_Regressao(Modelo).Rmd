@@ -29,14 +29,20 @@ dados <- dados |>
   select(gestation, wt, race, age, ht:dage, inc:number)
 ```
 
+# Adequando o banco para o R
+
 ```{r}
 dados$gestation[dados$gestation == 999] <- NA
 dados$wt[dados$wt == 999] <- NA
 dados$race[dados$race == 99] <- NA
 dados$age[dados$age == 99] <- NA
+dados$ed[dados$ed == 9] <- NA
 dados$ht[dados$ht == 99] <- NA
 dados$mwt[dados$mwt == 999] <- NA
 dados$drace[dados$drace == 99] <- NA
+dados$ded[dados$ded == 9] <- NA
+dados$dht[dados$dht == 99] <- NA
+dados$dwt[dados$dwt == 999] <- NA
 dados$dage[dados$dage == 99] <- NA
 dados$inc[dados$inc == 98] <- NA # não tem 99 no banco
 dados$smoke[dados$smoke == 9] <- NA
@@ -46,12 +52,23 @@ dados$number[dados$number == 9 | dados$number == 98] <- NA
 
 ```{r}
 # passando os pesos para kilo
-dados$wt_kg <- dados$wt * 0.0283495
-dados$mwt_kg <- dados$mwt * 0.45359237
+dados$wt <- dados$wt * 0.0283495
+dados$mwt <- dados$mwt * 0.45359237
+dados$dwt <- dados$dwt * 0.45359237 
 ```
 
 ```{r}
 # passando as alturas para cm
-dados$ht_cm <- dados$ht * 2.54
+dados$ht <- dados$ht * 2.54
+dados$dht <- dados$dht * 2.54
 ```
 
+```{r}
+dados <- dados |> 
+  select(gestation, parity, wt, race, age, ht:dage, inc:number)
+```
+
+```{r}
+# tirando linhas com na
+dados <- na.omit(dados)
+```
