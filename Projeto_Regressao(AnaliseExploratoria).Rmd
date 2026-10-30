@@ -821,4 +821,9 @@ corrplot(
   method = "color"
 )
 ```
+Note que há correlação entre:
 
+   - age e dage
+   - race e dage
+   - time e smoke
+   - number e smoke
