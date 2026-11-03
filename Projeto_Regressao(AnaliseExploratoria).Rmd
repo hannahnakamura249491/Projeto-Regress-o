@@ -22,15 +22,18 @@ dados <- read.table("dados.txt", header = TRUE) # lendo o grupo de dados que dev
 # vendo o banco
 summary(dados)
 ```
-Note que pluraly, outcome e sex possuem o registro de apenas um  tipo de observação. Dessa forma, não será possível analisar sua correlação com os dados, uma vez aue não existe forma de comparação.
 
-**Ideias iniciais:**
-- regressão do peso dos fetos como resposta
-- usar os pesos dos pais (wt.1 e dwt) como variáveis
-- adicionar a variável de fumo da mãe como uma categórica
-- podemos ir adicionando as outras variáveis também para ir testando tudo, como a quanto tempo a mãe largou o cigarro (isso só será possível se a mãe fumou e largou, então talvez, para verificar se isso tem influência devessemos filtrar os dados antes)
+Note que pluraly, outcome e sex possuem o registro de apenas um tipo de observação. Dessa forma, não será possível analisar sua correlação com os dados, uma vez aue não existe forma de comparação.
 
-# Analisando cada uma das variáveis do banco 
+**Ideias iniciais:** - regressão do peso dos fetos como resposta - usar os pesos dos pais (wt.1 e dwt) como variáveis - adicionar a variável de fumo da mãe como uma categórica - podemos ir adicionando as outras variáveis também para ir testando tudo, como a quanto tempo a mãe largou o cigarro (isso só será possível se a mãe fumou e largou, então talvez, para verificar se isso tem influência devessemos filtrar os dados antes)
+
+```{r}
+# mudando o nome da coluna do peso da mãe para não confundir com o do bebê
+dados <- dados |> 
+  rename(mwt = wt.1)
+```
+
+# Analisando cada uma das variáveis do banco
 
 ```{r}
 # pluralty
@@ -44,6 +47,7 @@ ggplot(dados, aes(x = pluralty)) + # gráfico
     y = "Contagem"
   )
 ```
+
 Note que todos os nascimentos registrados foram de um feto único. Dessa forma, não será possível incluir essa variável na regressão, dado que não podemos comprovar sua relação com a variável resposta peso sem comparar seus efeitos de sua presença com a falta.
 
 ```{r}
@@ -58,8 +62,8 @@ ggplot(dados, aes(x = outcome)) + # gráfico
     y = "Contagem"
   )
 ```
-Note que todos os bebês registrados sobreviveram pelo menos 28 dias. Dessa forma, não será possível inclui essa variável na regressão, dado que não podemos comprovar sua relação com a variável resposta peso sem comparar seus efeitos de sua presença com a falta.
 
+Note que todos os bebês registrados sobreviveram pelo menos 28 dias. Dessa forma, não será possível inclui essa variável na regressão, dado que não podemos comprovar sua relação com a variável resposta peso sem comparar seus efeitos de sua presença com a falta.
 
 ```{r}
 # date
@@ -73,6 +77,7 @@ ggplot(dados, aes(x = date)) + # gráficos
     y = "Contagem"
   )
 ```
+
 Não é uma variável interessante de analizar
 
 ```{r}
@@ -110,6 +115,7 @@ ggplot(gestation, aes(x = faixa, y = n, fill = destaque)) + # gráfico
     y = "Contagem"
   )
 ```
+
 Observe que tem uns dados com 999, sendo que a descrição das variáveis não apresenta isso como NA, mesmo que provavelmente seja. Além disso, há números irrais que não foram mencionados na descrição das variáveis (999)
 
 ```{r}
@@ -141,6 +147,7 @@ ggplot(sex, aes(x = sex, y = n, fill = destaque)) + # gráfico
     y = "Contagem"
   )
 ```
+
 Note que todos os bebês registrados eram homens. Dessa forma, não será possível inclui essa variável na regressão, dado que não podemos comprovar sua relação com a variável resposta peso sem comparar seus efeitos de sua presença com a falta.
 
 ```{r}
@@ -172,11 +179,12 @@ ggplot(wt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   theme_minimal() +
   theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
   labs(
-    title = "Distribuição do peso",
-    x = "Peso",
+    title = "Distribuição do peso do bebê",
+    x = "Peso do bebê",
     y = "Contagem"
   )
 ```
+
 Note que não houve nenhum NA(999) registrado.
 
 ```{r}
@@ -214,6 +222,7 @@ ggplot(parity, aes(x = faixa, y = n, fill = destaque)) + # gráfico
     y = "Contagem"
   )
 ```
+
 Note que não houve nenhum NA(99) registrado.
 
 ```{r}
@@ -365,10 +374,10 @@ ggplot(ht, aes(x = faixa, y = n, fill = destaque)) + # gráfico
 ```{r}
 #wt.1
 
-wt.1 <- dados |> # agrupando e separando por destaque
+mwt <- dados |> # agrupando e separando por destaque
   mutate(
     faixa = cut(
-      wt.1,
+      mwt,
       breaks = seq(0, 1000, by = 5),
       include.lowest = TRUE
     )) |> 
@@ -378,7 +387,7 @@ wt.1 <- dados |> # agrupando e separando por destaque
   rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
   )
 
-ggplot(wt.1, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+ggplot(mwt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   geom_col(width = 0.6) +
   geom_text(
     aes(label = rotulo),
@@ -539,54 +548,49 @@ ggplot(dht, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   theme(legend.position = "none") +
   labs(
     title = "Distribuição da altura do pai",
-    x = "Altura do pai",
+    x = "altura do pai",
     y = "Contagem"
   )
 ```
+
 Muito NA, não é uma variável interessante de analizar
 
 ```{r}
-# dwt: Peso do pai com identificação de dados ausentes (NAs)
+# dwt
 
-dwt <- dados |> 
+dwt <- dados |> # agrupando e separando por destaque
   mutate(
     faixa = cut(
       dwt,
       breaks = seq(0, 1000, by = 5),
       include.lowest = TRUE
-    )
-  ) |> 
+    )) |> 
   count(faixa) |> 
   mutate(
-    destaque = ifelse(grepl("995", faixa), "Dado Ausente (NA)", "Dado Observado"),
-    rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
+  destaque = ifelse(grepl("995", faixa), "Destaque", "Analizavel"),
+  rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
   )
 
-ggplot(dwt, aes(x = faixa, y = n, fill = destaque)) + 
+ggplot(dwt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   geom_col(width = 0.6) +
   geom_text(
     aes(label = rotulo),
-    vjust = -0.5,
-    fontface = "bold",
+    vjust = -0.5, # para posicionar o texto acima da barra
+    fontface = "bold", # negritando o texto
     size = 4.5
   ) +
   scale_fill_manual(
-    values = c("Dado Ausente (NA)" = "tomato", "Dado Observado" = "steelblue")
-  ) +
+    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
   theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold"),
-    legend.position = "bottom",
-    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
-  ) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
   labs(
-    title = "Distribuição do Peso do Pai (dwt)",
-    x = "Peso do pai (libras)",
-    y = "Contagem",
-    fill = "Status:"
+    title = "Distribuição da peso do pai",
+    x = "peso do pai",
+    y = "Contagem"
   )
 ```
+
 Muito NA, não usar coluna
 
 ```{r}
@@ -763,21 +767,20 @@ ggplot(number, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   )
 ```
 
-# Adequando o banco para o R
-
-```{r}
-dados <- dados |> 
-  select(gestation, wt, race, age, ht:dage, inc:number)
-```
+## Adequando o banco para o R
 
 ```{r}
 dados$gestation[dados$gestation == 999] <- NA
 dados$wt[dados$wt == 999] <- NA
 dados$race[dados$race == 99] <- NA
 dados$age[dados$age == 99] <- NA
+dados$ed[dados$ed == 9] <- NA
 dados$ht[dados$ht == 99] <- NA
-dados$wt.1[dados$wt.1 == 999] <- NA
+dados$mwt[dados$mwt == 999] <- NA
 dados$drace[dados$drace == 99] <- NA
+dados$ded[dados$ded == 9] <- NA
+dados$dht[dados$dht == 99] <- NA
+dados$dwt[dados$dwt == 999] <- NA
 dados$dage[dados$dage == 99] <- NA
 dados$inc[dados$inc == 98] <- NA # não tem 99 no banco
 dados$smoke[dados$smoke == 9] <- NA
@@ -788,17 +791,143 @@ dados$number[dados$number == 9 | dados$number == 98] <- NA
 ```{r}
 # passando os pesos para kilo
 dados$wt <- dados$wt * 0.0283495
-dados$wt.1 <- dados$wt.1 * 0.453592
+dados$mwt <- dados$mwt * 0.45359237
+dados$dwt <- dados$dwt * 0.45359237 
 ```
 
 ```{r}
 # passando as alturas para cm
-dados$ht <- dados$wt * 2.54
+dados$ht <- dados$ht * 2.54
+dados$dht <- dados$dht * 2.54
 ```
 
-# Análise Exploratória
+```{r}
+dados <- dados |> 
+  select(gestation, parity, wt, race, age, ht:dage, inc:number)
+```
 
 ```{r}
-pairs(dados)
+# tirando linhas com na
+dados <- na.omit(dados)
+```
+
+## Analisando a variável resposta
+
+Agora buscamos avaliar a variável resposta de maneira simples descritiva.
+
+```{r}
+wt_limpo <- dados$wt
+
+media_wt    <- mean(wt_limpo, na.rm = TRUE)
+mediana_wt  <- median(wt_limpo, na.rm = TRUE)
+dp_wt       <- sd(wt_limpo, na.rm = TRUE)
+min_wt      <- min(wt_limpo, na.rm = TRUE)
+max_wt      <- max(wt_limpo, na.rm = TRUE)
+n_obs       <- length(wt_limpo)
+
+cat("N de observacoes validas:", n_obs, "\n")
+cat("Media:", round(media_wt, 2), "kg\n")
+cat("Mediana:", round(mediana_wt, 2), "kg\n")
+cat("Desvio Padrao:", round(dp_wt, 2), "kg\n")
+cat("Minimo:", round(min_wt, 2), "kg | Maximo:", round(max_wt, 2), "kg\n")
+
+par(mfrow = c(1, 2))
+
+hist(wt_limpo, 
+     main = "Distribuição do Peso ao Nascer", 
+     xlab = "Peso (kg)", 
+     ylab = "Frequência", 
+     col = "lightblue", 
+     border = "white")
+
+boxplot(wt_limpo, 
+        main = "Boxplot do Peso ao Nascer", 
+        ylab = "Peso (kg)", 
+        col = "lightgray")
+
+# Restaurar configuracao grafica padrao
+par(mfrow = c(1, 1))
+```
+
+O peso ao nascer apresenta um comportamento extremamente próximo de uma distribuição Normal, o que é ideal para a regressão linear e indica que não há necessidade de aplicar transformações matemáticas (como logaritmo) na variável resposta nesta etapa inicial.
+
+## Estudando a variável resposta sobre as variáveis relacionadas ao fumo
+
+```{r}
+dados_fumo <- subset(dados, !is.na(smoke))
+
+dados_fumo$fumo_rotulo <- factor(dados_fumo$smoke,
+                                 levels = c(0, 1, 2, 3),
+                                 labels = c("Nunca fumou", "Fuma atualmente", "Até a gravidez", "Ex-fumante"))
+
+qtd_grupo     <- tapply(dados_fumo$wt, dados_fumo$fumo_rotulo, length)
+media_grupo   <- tapply(dados_fumo$wt, dados_fumo$fumo_rotulo, mean)
+mediana_grupo <- tapply(dados_fumo$wt, dados_fumo$fumo_rotulo, median)
+dp_grupo      <- tapply(dados_fumo$wt, dados_fumo$fumo_rotulo, sd)
+min_grupo     <- tapply(dados_fumo$wt, dados_fumo$fumo_rotulo, min)
+max_grupo     <- tapply(dados_fumo$wt, dados_fumo$fumo_rotulo, max)
+
+tabela_fumo <- data.frame(
+  Categoria = levels(dados_fumo$fumo_rotulo),
+  N = as.vector(qtd_grupo),
+  Media = round(as.vector(media_grupo), 2),
+  Mediana = round(as.vector(mediana_grupo), 2),
+  Desvio_Padrao = round(as.vector(dp_grupo), 2),
+  Minimo = round(as.vector(min_grupo), 2),
+  Maximo = round(as.vector(max_grupo), 2)
+)
+
+print(tabela_fumo)
+
+boxplot(wt ~ fumo_rotulo, 
+        data = dados_fumo,
+        main = "Peso do Bebê ao Nascer por Hábito de Fumar da Mãe",
+        xlab = "Categoria de Fumo da Mãe",
+        ylab = "Peso ao Nascer (kg)",
+        col = c("lightblue", "salmon", "lightgray", "lightgreen"))
+```
+
+A análise por grupo revela uma redução média de 0,26 kg (260 gramas) no peso dos recém-nascidos de mães que fumam atualmente (3,21 kg) quando comparados aos filhos de mães que nunca fumaram (3,47 kg). Notadamente, mães que interromperam o hábito até a gravidez (3,46 kg) e ex-fumantes (3,50 kg) mantiveram médias semelhantes às do grupo de não fumantes.
+
+## Análise de Correlação e Dispersão
+
+Primeiramente, calcula-se a matriz de correlação para identificar a intensidade e a direção das relações lineares entre todas as variáveis.
+
+```{r}
+library(corrplot)
+
+M1 <- cor(dados)
+
+corrplot(
+  M1,
+  method = "color",
+  type = "lower",
+  tl.col = "black",
+  tl.srt = 45,
+  tl.cex = 0.75,
+  diag = FALSE
+)
+```
+Note que há correlação entre:
+
+   - age e dage
+   - race e dage
+   - time e smoke
+   - number e smoke
+   
+
+Com base na matriz de correlação, selecionam-se as variáveis contínuas com relações mais expressivas para inspecionar a dispersão dos dados e a linearidade das associações.
+```{r}
+
+var_interesse <- c("wt", "gestation", "ht", "mwt", "age", "dage")
+
+
+var_validas <- intersect(var_interesse, colnames(dados))
+
+pairs(dados[, var_validas], 
+      pch = 19, 
+      cex = 0.4, 
+      col = "gray40",
+      main = "Matriz de Dispersão para Variáveis Selecionadas")
 ```
 
