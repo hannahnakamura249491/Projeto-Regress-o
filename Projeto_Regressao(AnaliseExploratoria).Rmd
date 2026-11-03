@@ -30,12 +30,6 @@ Note que pluraly, outcome e sex possuem o registro de apenas um  tipo de observa
 - adicionar a variável de fumo da mãe como uma categórica
 - podemos ir adicionando as outras variáveis também para ir testando tudo, como a quanto tempo a mãe largou o cigarro (isso só será possível se a mãe fumou e largou, então talvez, para verificar se isso tem influência devessemos filtrar os dados antes)
 
-```{r}
-# mudando o nome da coluna do peso da mãe para não confundir com o do bebê
-dados <- dados |> 
-  rename(mwt = wt.1)
-```
-
 # Analisando cada uma das variáveis do banco 
 
 ```{r}
@@ -178,8 +172,8 @@ ggplot(wt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   theme_minimal() +
   theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
   labs(
-    title = "Distribuição do peso do bebê",
-    x = "Peso do bebê",
+    title = "Distribuição do peso",
+    x = "Peso",
     y = "Contagem"
   )
 ```
@@ -371,10 +365,10 @@ ggplot(ht, aes(x = faixa, y = n, fill = destaque)) + # gráfico
 ```{r}
 #wt.1
 
-mwt <- dados |> # agrupando e separando por destaque
+wt.1 <- dados |> # agrupando e separando por destaque
   mutate(
     faixa = cut(
-      mwt,
+      wt.1,
       breaks = seq(0, 1000, by = 5),
       include.lowest = TRUE
     )) |> 
@@ -384,7 +378,7 @@ mwt <- dados |> # agrupando e separando por destaque
   rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
   )
 
-ggplot(mwt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+ggplot(wt.1, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   geom_col(width = 0.6) +
   geom_text(
     aes(label = rotulo),
@@ -545,45 +539,52 @@ ggplot(dht, aes(x = faixa, y = n, fill = destaque)) + # gráfico
   theme(legend.position = "none") +
   labs(
     title = "Distribuição da altura do pai",
-    x = "altura do pai",
+    x = "Altura do pai",
     y = "Contagem"
   )
 ```
 Muito NA, não é uma variável interessante de analizar
 
 ```{r}
-# dwt
+# dwt: Peso do pai com identificação de dados ausentes (NAs)
 
-dwt <- dados |> # agrupando e separando por destaque
+dwt <- dados |> 
   mutate(
     faixa = cut(
       dwt,
       breaks = seq(0, 1000, by = 5),
       include.lowest = TRUE
-    )) |> 
+    )
+  ) |> 
   count(faixa) |> 
   mutate(
-  destaque = ifelse(grepl("995", faixa), "Destaque", "Analizavel"),
-  rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
+    destaque = ifelse(grepl("995", faixa), "Dado Ausente (NA)", "Dado Observado"),
+    rotulo = ifelse(grepl("995", faixa), as.character(n), NA)
   )
 
-ggplot(dwt, aes(x = faixa, y = n, fill = destaque)) + # gráfico
+ggplot(dwt, aes(x = faixa, y = n, fill = destaque)) + 
   geom_col(width = 0.6) +
   geom_text(
     aes(label = rotulo),
-    vjust = -0.5, # para posicionar o texto acima da barra
-    fontface = "bold", # negritando o texto
+    vjust = -0.5,
+    fontface = "bold",
     size = 4.5
   ) +
   scale_fill_manual(
-    values = c("Destaque" = "tomato", "Analizavel" = "steelblue")) +
+    values = c("Dado Ausente (NA)" = "tomato", "Dado Observado" = "steelblue")
+  ) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
   theme_minimal() +
-  theme(legend.position = "none", axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+  ) +
   labs(
-    title = "Distribuição da peso do pai",
-    x = "peso do pai",
-    y = "Contagem"
+    title = "Distribuição do Peso do Pai (dwt)",
+    x = "Peso do pai (libras)",
+    y = "Contagem",
+    fill = "Status:"
   )
 ```
 Muito NA, não usar coluna
@@ -765,17 +766,18 @@ ggplot(number, aes(x = faixa, y = n, fill = destaque)) + # gráfico
 # Adequando o banco para o R
 
 ```{r}
+dados <- dados |> 
+  select(gestation, wt, race, age, ht:dage, inc:number)
+```
+
+```{r}
 dados$gestation[dados$gestation == 999] <- NA
 dados$wt[dados$wt == 999] <- NA
 dados$race[dados$race == 99] <- NA
 dados$age[dados$age == 99] <- NA
-dados$ed[dados$ed == 9] <- NA
 dados$ht[dados$ht == 99] <- NA
-dados$mwt[dados$mwt == 999] <- NA
+dados$wt.1[dados$wt.1 == 999] <- NA
 dados$drace[dados$drace == 99] <- NA
-dados$ded[dados$ded == 9] <- NA
-dados$dht[dados$dht == 99] <- NA
-dados$dwt[dados$dwt == 999] <- NA
 dados$dage[dados$dage == 99] <- NA
 dados$inc[dados$inc == 98] <- NA # não tem 99 no banco
 dados$smoke[dados$smoke == 9] <- NA
@@ -786,44 +788,17 @@ dados$number[dados$number == 9 | dados$number == 98] <- NA
 ```{r}
 # passando os pesos para kilo
 dados$wt <- dados$wt * 0.0283495
-dados$mwt <- dados$mwt * 0.45359237
-dados$dwt <- dados$dwt * 0.45359237 
+dados$wt.1 <- dados$wt.1 * 0.453592
 ```
 
 ```{r}
 # passando as alturas para cm
-dados$ht <- dados$ht * 2.54
-dados$dht <- dados$dht * 2.54
+dados$ht <- dados$wt * 2.54
 ```
 
-```{r}
-dados <- dados |> 
-  select(gestation, parity, wt, race, age, ht:dage, inc:number)
-```
-
-```{r}
-# tirando linhas com na
-dados <- na.omit(dados)
-```
+# Análise Exploratória
 
 ```{r}
 pairs(dados)
 ```
 
-
-```{r}
-library(corrplot)
-
-M1 <- cor(dados)
-
-corrplot(
-  M1,
-  method = "color"
-)
-```
-Note que há correlação entre:
-
-   - age e dage
-   - race e dage
-   - time e smoke
-   - number e smoke
