@@ -1,0 +1,435 @@
+---
+title: "Projeto_Regressao (Modelos)"
+author: "Hannah Miranda Nakamura (249491)"
+date: "2026-11-04"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 8, fig.height = 6)
+```
+
+# 1. Leitura e limpeza da base
+
+```{r pacotes}
+library(tidyverse)
+library(knitr)
+library(car)      # vif()
+library(lmtest)   # bptest()
+library(leaps)    # regsubsets()
+```
+
+```{r leitura}
+# o arquivo dados.txt deve estar no diretório de trabalho
+dados <- read.table("dados.txt", header = TRUE)  # o 2º "wt" vira wt.1
+
+# o peso da mãe vira mwt para não confundir com o peso do bebê
+dados <- dados |> rename(mwt = wt.1)
+dados_cru <- dados
+```
+
+## 1.1 Códigos presentes na base
+
+O código 10 aparece em `race` e `drace`, mas não consta no dicionário
+(`variaveis.txt`). Conferimos todos os códigos antes de recodificar.
+
+```{r codigos}
+codigos_raros <- function(df, vars, max_niveis = 15) {
+  map_dfr(vars, \(v) {
+    tab <- table(df[[v]], useNA = "ifany")
+    if (length(tab) > max_niveis) return(NULL)
+    tibble(variavel = v, codigo = names(tab), n = as.integer(tab))
+  })
+}
+
+codigos_raros(dados_cru, c("race", "drace", "inc", "smoke", "time", "number")) |>
+  pivot_wider(names_from = variavel, values_from = n) |>
+  arrange(as.integer(codigo)) |>
+  kable(caption = "Contagem de cada código por variável (NA = ausente)")
+```
+
+## 1.2 Identificadores de NAs
+
+```{r na-unidades}
+# códigos de não resposta -> NA
+dados$gestation[dados$gestation == 999] <- NA
+dados$wt[dados$wt == 999]               <- NA
+dados$race[dados$race == 99]            <- NA
+dados$age[dados$age == 99]              <- NA
+dados$ed[dados$ed == 9]                 <- NA
+dados$ht[dados$ht == 99]                <- NA
+dados$mwt[dados$mwt == 999]             <- NA
+dados$drace[dados$drace == 99]          <- NA
+dados$ded[dados$ded == 9]               <- NA
+dados$dht[dados$dht == 99]              <- NA
+dados$dwt[dados$dwt == 999]             <- NA
+dados$dage[dados$dage == 99]            <- NA
+dados$inc[dados$inc %in% c(98, 99)]     <- NA
+dados$smoke[dados$smoke == 9]           <- NA
+dados$time[dados$time %in% c(9, 98, 99)]     <- NA
+dados$number[dados$number %in% c(9, 98, 99)] <- NA
+
+# unidades: onças -> kg, libras -> kg, polegadas -> cm
+dados$wt  <- dados$wt  * 0.0283495
+dados$mwt <- dados$mwt * 0.45359237
+dados$ht  <- dados$ht  * 2.54
+
+# as 13 variáveis finais
+dados <- dados |>
+  select(gestation, parity, wt, race, age, ht, mwt, drace, dage,
+         inc, smoke, time, number)
+```
+
+## 1.3 Fatores (antes de qualquer `na.omit`)
+
+Raça: 0-5 = branco, 6 = mex, 7 = negro, 8, 9 e 10 = "outros". O código 10 não
+está no dicionário; juntá-lo a asiático e misturado mantém as linhas e evita
+níveis com poucas observações.
+
+```{r fatores}
+fator_raca <- function(x) {
+  factor(
+    case_when(
+      x %in% 0:5         ~ "branco",
+      x == 6             ~ "mex",
+      x == 7             ~ "negro",
+      x %in% c(8, 9, 10) ~ "outros"
+    ),
+    levels = c("branco", "mex", "negro", "outros")
+  )
+}
+
+dados <- dados |>
+  mutate(
+    race  = fator_raca(race),
+    drace = fator_raca(drace),
+
+    # renda: versão ordinal numérica (1 parâmetro) e versão agrupada
+    inc_num = inc,
+    inc_g   = cut(inc, breaks = c(-1, 2, 4, 6, 9),
+                  labels = c("0-2", "3-4", "5-6", "7-9")),
+
+    smoke = factor(smoke, levels = 0:3,
+                   labels = c("nunca", "fuma agora", "ate a gravidez",
+                              "ja fumou, nao agora")),
+    time = factor(time, levels = 0:8,
+                  labels = c("nunca fumou", "ainda fuma", "durante a gravidez",
+                             "dentro de 1 ano", "1-2 anos", "2-3 anos",
+                             "3-4 anos", "5-9 anos", "10+ anos")),
+    number = factor(number, levels = 0:8,
+                    labels = c("nunca", "1-4", "5-9", "10-14", "15-19",
+                               "20-29", "30-39", "40-60", "60+")),
+
+    # gestações muito curtas: só sinalizadas; a decisão vem do diagnóstico
+    gest_suspeita = gestation < 200
+  ) |>
+  select(-inc)
+```
+
+## 1.4 Perda de linhas por NA
+
+```{r perda-na}
+perda_na <- tibble(
+  variavel = names(dados),
+  n_na     = map_int(dados, \(x) sum(is.na(x))),
+  pct_na   = round(100 * n_na / nrow(dados), 1)
+) |> arrange(desc(n_na))
+
+kable(perda_na, caption = "NAs por variável (após recodificação)")
+```
+
+## 1.5 Bases de análise
+
+- `dados_limpos`: amostra comum, sem NA em nenhuma variável (inclui `time` e
+  `number`). Usada para comparar M3, M4 e M5 com o mesmo n.
+- `dados_smoke`: só exclui NA nas variáveis dos modelos com `smoke`.
+
+```{r bases}
+vars_smoke <- c("gestation", "parity", "wt", "race", "age", "ht", "mwt",
+                "drace", "dage", "inc_num", "inc_g", "smoke")
+
+dados_limpos <- dados |> select(-gest_suspeita) |> na.omit() |> droplevels()
+dados_smoke  <- dados |> drop_na(all_of(vars_smoke)) |> droplevels()
+
+kable(tibble(base = c("original", "amostra comum (dados_limpos)",
+                      "amostra com smoke (dados_smoke)"),
+             n = c(nrow(dados), nrow(dados_limpos), nrow(dados_smoke))),
+      caption = "Número de observações por base")
+```
+
+```{r inc-escolha, eval=FALSE}
+# decisão pendente: inc como ordinal (inc_num) ou agrupada (inc_g)?
+# compare por BIC em um modelo com as demais variáveis e fixe a escolha em `base`.
+```
+
+# 2. Funções para análise das regressões
+
+```{r funcoes}
+diagnostico <- function(m) {
+  par(mfrow = c(2, 2))
+  plot(m)           # resíduos vs ajustados, Q-Q, scale-location, leverage
+  par(mfrow = c(1, 1))
+
+  cat("\n--- Normalidade dos resíduos (Shapiro-Wilk) ---\n")
+  print(shapiro.test(residuals(m)))
+
+  cat("\n--- Homocedasticidade (Breusch-Pagan) ---\n")
+  print(bptest(m))
+
+  cat("\n--- Multicolinearidade (VIF) ---\n")
+  if (length(coef(m)) > 2) print(vif(m)) else cat("Só um regressor, VIF não se aplica.\n")
+
+  cat("\n--- Pontos influentes (Distância de Cook > 4/n) ---\n")
+  cook <- cooks.distance(m)
+  print(which(cook > 4 / length(cook)))
+
+  cat("\n--- Medidas de ajuste ---\n")
+  s <- summary(m)
+  cat("R2:", round(s$r.squared, 4),
+      "| R2 ajustado:", round(s$adj.r.squared, 4),
+      "| AIC:", round(AIC(m), 2),
+      "| BIC:", round(BIC(m), 2), "\n")
+}
+
+# PRESS
+press <- function(m) sum((residuals(m) / (1 - hatvalues(m)))^2)
+
+# comparação rápida de modelos: comparar_modelos(m1, m2, m3)
+comparar_modelos <- function(...) {
+  modelos <- list(...)
+  nomes <- as.character(substitute(list(...)))[-1]
+  tab <- do.call(rbind, lapply(modelos, function(m) {
+    s <- summary(m); f <- s$fstatistic
+    data.frame(
+      n_param = length(coef(m)),
+      R2 = s$r.squared, R2_aj = s$adj.r.squared,
+      sigma = s$sigma, AIC = AIC(m), BIC = BIC(m), PRESS = press(m),
+      p_F = pf(f[1], f[2], f[3], lower.tail = FALSE)
+    )
+  }))
+  rownames(tab) <- nomes
+  round(tab, 4)
+}
+
+# todas as regressões possíveis: R2 ajustado, Cp de Mallows e BIC
+selecao_todas <- function(formula, data, nvmax = 20) {
+  r <- regsubsets(formula, data = data, nvmax = nvmax)
+  s <- summary(r)
+  data.frame(n_var = seq_along(s$rss),
+             R2_aj = s$adjr2, Cp = s$cp, BIC = s$bic) |> round(3)
+}
+
+# outliers e pontos influentes
+influentes <- function(m) {
+  n <- nobs(m); p <- length(coef(m))
+  d <- data.frame(
+    obs = seq_len(n),
+    res_stud = rstudent(m),
+    hii = hatvalues(m),
+    cook = cooks.distance(m)
+  )
+  subset(d, abs(res_stud) > 3 | hii > 2 * p / n | cook > 4 / n)
+}
+
+# intervalos de confiança (média) e de predição (nova observação)
+intervalos <- function(m, novo) {
+  cbind(novo,
+        IC_media = predict(m, novo, interval = "confidence"),
+        IP_nova  = predict(m, novo, interval = "prediction"))
+}
+
+# coeficientes com IC e p-valor
+coef_tab <- function(m) {
+  cbind(Estimativa = coef(m), confint(m),
+        p_valor = summary(m)$coefficients[, 4]) |> round(4)
+}
+
+# resumo de um modelo (uma linha)
+resumo_modelo <- function(fit, nome) {
+  s <- summary(fit)
+  f <- s$fstatistic
+  tibble(
+    Modelo     = nome,
+    n          = nobs(fit),
+    parametros = fit$rank,          # posto: ignora coeficientes aliasados (NA)
+    MSRes      = s$sigma^2,
+    sigma      = s$sigma,
+    R2         = s$r.squared,
+    R2_aj      = s$adj.r.squared,
+    F          = if (is.null(f)) NA_real_ else unname(f[1]),
+    p_F        = if (is.null(f)) NA_real_ else pf(f[1], f[2], f[3], lower.tail = FALSE),
+    AIC        = AIC(fit),
+    BIC        = BIC(fit)
+  )
+}
+
+# VIF máximo; NA se houver aliasing ou só um termo no modelo
+calc_vif_max <- function(fit) {
+  if (length(attr(terms(fit), "term.labels")) < 2) return(NA_real_)
+  tryCatch({
+    v <- vif(fit)
+    if (is.matrix(v)) max(v[, 3]) else max(v)   # GVIF^(1/(2*Df)) quando há fatores
+  }, error = function(e) NA_real_)
+}
+```
+
+# 3. Modelos
+
+## M1 - Efeito bruto do fumo
+
+**Análise.** A hipótese central do trabalho é que filhos de mães fumantes nascem
+mais leves. O M1 ajusta apenas `wt ~ smoke`, com "nunca fumou" como referência,
+na amostra `dados_smoke` (n = `r nrow(dados_smoke)`). Este modelo não controla
+as demais variáveis explicativas, portanto mede apenas a associação bruta.
+
+```{r m1}
+m1 <- lm(wt ~ smoke, data = dados_smoke)
+summary(m1)
+```
+
+```{r m1-boxplot}
+ggplot(dados_smoke, aes(x = smoke, y = wt)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Peso do bebê por hábito de fumo da mãe",
+       x = "Hábito de fumo", y = "Peso ao nascer (kg)")
+```
+
+<!-- TODO: após o Knit, escrever aqui a conclusão com os números de coef_tab(m1):
+     sentido e tamanho do efeito de "fuma agora" e significância. -->
+
+## M2 - Só a duração da gestação
+
+**Análise.**  A Regressão está ok, testamos este ajuste apenas com a finalidade de comprovar a veracidade dos dados, já que, a variável atralada ao tempo de gestação é de conhecimento cientifico que é significativa para explicar o peso do bebê. Após fazermos a análise da regressão chegamos que a variável é significativa. Portanto, comprovamos a consistência dados frente à realidade.
+
+```{r m2}
+m2 <- lm(wt ~ gestation, data = dados_smoke)
+summary(m2)
+```
+
+```{r m2-diag, fig.height=7}
+diagnostico(m2)
+```
+
+```{r m2-suspeitas}
+influentes(m2) |> round(3) |> head(15) |>
+  kable(caption = "M2: observações atípicas ou influentes (primeiras 15)")
+        
+# gestações suspeitas (< 200 dias) estão entre as influentes?
+dados_smoke |> mutate(obs = row_number()) |>
+  filter(gestation < 200) |> select(obs, gestation, wt, smoke) |>
+  kable(caption = "Gestações com menos de 200 dias")
+```
+
+## M3 - Identificar Multicolinearidade
+
+**Analise**: Modelo completo com as três variáveis de tabagismo.
+O ajuste com smoke, time e number simultaneamente resultou em coeficientes não estimados (NA) para M3. e a função vif() não pôde ser calculada por haver coeficientes aliasados. A matriz de delineamento tem [p] colunas, mas posto [r] < [p], caracterizando multicolinearidade perfeita. As três variáveis tem correlação muito alta entre si.
+
+As tabelas cruzadas mostram a origem do problema: cada categoria de time pertence a uma única categoria de smoke e a categoria “nunca” de number coincide com smoke = nunca. As três variáveis são, portanto, medidas do mesmo comportamento com graus de detalhe diferentes, e a informação de uma é combinação linear das demais.
+
+Com isso, os coeficientes individuais não são identificáveis. Além disso, a escolha de qual coeficiente é descartado pelo software depende da ordem dos termos na fórmula (Modelos [a] e [b]), o que não tem fundamento estatístico. Decidiu-se, então, manter apenas uma das variáveis.
+
+Ajustando cada variável separadamente (Tabela [N]), obteve-se smoke: R² ajustado [0.2784419], BIC [1329.878] com [17] parâmetros; Optou-se por [smoke]. Optou-se por smoke por três razões:
+- (i) é a variável diretamente ligada à hipótese de interesse, se fumar impacta diretamente no peso do bebê;
+- (ii) é a mais simples (17 parâmetros), com BIC menor entre as alternativas e AIC/R² ajustado [equivalentes/ligeiramente piores] a number e time; 
+- (iii) time e number apresentam categorias com poucas observações , o que torna suas estimativas instáveis. O teste F parcial de number dado smoke não foi significativo, indicando que o detalhamento da quantidade não acrescenta explicação relevante.
+
+Pontanto, os VIFs do modelo resultante ficaram abaixo de [1.934373 ], sem indício de colinearidade remanescente.
+
+Decisão: manter [smoke]; descartar [number e time].
+
+```{r}
+# 1. Tabelas cruzadas
+table(smoke = dados_limpos$smoke, time   = dados_limpos$time)
+table(smoke = dados_limpos$smoke, number = dados_limpos$number)
+
+# 2. Aliasing
+m_3fumo <- lm(wt ~ gestation + smoke + time + number, data = dados_limpos)
+names(coef(m_3fumo))[is.na(coef(m_3fumo))]
+alias(m_3fumo)$Complete
+c(colunas_X = ncol(model.matrix(m_3fumo)), posto = m_3fumo$rank)
+
+# 3. A ordem dos termos decide quem vira NA
+m_a <- lm(wt ~ gestation + smoke + number, data = dados_limpos)
+m_b <- lm(wt ~ gestation + number + smoke, data = dados_limpos)
+names(coef(m_a))[is.na(coef(m_a))]
+names(coef(m_b))[is.na(coef(m_b))]
+
+# 4. Uma variável de fumo por vez, na mesma amostra
+base <- ~ gestation + parity + race + age + ht + mwt + drace + dage + inc_num
+m_smoke  <- lm(update(base, wt ~ . + smoke),  data = dados_limpos)
+m_time   <- lm(update(base, wt ~ . + time),   data = dados_limpos)
+m_number <- lm(update(base, wt ~ . + number), data = dados_limpos)
+
+bind_rows(resumo_modelo(m_smoke,  "só smoke"),
+          resumo_modelo(m_time,   "só time"),
+          resumo_modelo(m_number, "só number")) |>
+  select(Modelo, parametros, MSRes, R2_aj, AIC, BIC) |> kable()
+
+sapply(list(smoke = m_smoke, time = m_time, number = m_number), calc_vif_max)
+```
+## M4 - Modelo completo (com smoke)
+
+**Analise**:
+
+```{r}
+M4 <- lm(wt ~ smoke + gestation + parity + race + age + ht + mwt + drace + dage + inc_num, dados_smoke)
+summary(M4)
+```
+
+```{r}
+diagnostico(M4)
+```
+
+```{r}
+influentes(M4)|> round(3) |> head(15) |>
+  kable(caption = "M4: observações atípicas ou influentes (primeiras 15)")
+```
+
+## M5 - Modelo completo (com numbem)
+
+**Analise**:
+
+```{r}
+M5 <- lm(wt ~ number + gestation + parity + race + age + ht + mwt + drace + dage + inc_num, dados_smoke)
+summary(M5)
+```
+
+# 4. Próximos modelos (a adicionar)
+
+- **M4:** completo com `smoke` (`dados_smoke`).
+- **M5:** completo com `number` no lugar de `smoke`.
+- **M6:** M4 sem `gestation` (efeito total do fumo).
+- **M7 em diante:** termo não linear em `gestation`, transformações (Box-Cox,
+  log), interações com `smoke`, seleção de variáveis e validação.
+
+# 5. Registro de todos os modelos testados
+
+Tabela única para o relatório. Cada modelo novo entra com uma linha e um motivo
+de decisão.
+
+```{r registro}
+registro <- bind_rows(
+  resumo_modelo(m1, "M1: wt ~ smoke"),
+  resumo_modelo(m2, "M2: wt ~ gestation"),
+  resumo_modelo(m_smoke,  "M3a: completo sem time/number, com smoke"),
+  resumo_modelo(m_time,   "M3b: completo com time"),
+  resumo_modelo(m_number, "M3c: completo com number")
+) |>
+  mutate(
+    VIF_max = c(NA, NA, calc_vif_max(m_smoke), calc_vif_max(m_time),
+                calc_vif_max(m_number)),
+    decisao = c("Referência: efeito bruto do fumo",
+                "Checagem de consistência dos dados",
+                "Mantido: base para M4",
+                "Descartado: categorias esparsas, redundante com smoke",
+                "Descartado: categorias esparsas, redundante com smoke")
+  )
+
+kable(registro, digits = 3, caption = "Registro dos modelos testados")
+```
